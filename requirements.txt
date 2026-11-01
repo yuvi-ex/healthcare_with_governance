@@ -1,0 +1,5 @@
+# The project's Python environment (Python 3.12): set-up scripts, the access-desk service, headless tests.
+# setup/venv.sh creates .venv from this file. Pins are the versions the demo was built and tested with.
+pyexasol==3.0.1
+boto3==1.43.122
+playwright==1.64.1

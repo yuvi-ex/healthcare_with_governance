@@ -1,0 +1,47 @@
+-- The six questions of the health demo, governed: each answer is computed over what the CALLER may open, so the same
+-- question gives a doctor, an analyst and a doctor-with-a-ticket different (and each correct) answers.
+
+CREATE OR REPLACE VIEW HEALTH_GOV.VISIBLE_BRANCHES AS
+SELECT UNIFIED_ID, BRANCH FROM HEALTH_GOV.VISIBLE_RECORDS GROUP BY UNIFIED_ID, BRANCH;
+
+-- Q5: a readmission counts for the caller only if they may open the records of BOTH stays (the readmission and the one before).
+CREATE OR REPLACE VIEW HEALTH_GOV.READMISSIONS AS
+SELECT r.UNIFIED_ID, r.BRANCH, r.PREV_BRANCH, r.ADMIT_DATE, r.DIAGNOSIS, r.DAYS_SINCE_DISCHARGE, r.VISIBLE_TO_ONE_SYSTEM
+FROM HOSP_CORE.READMISSIONS_30D r
+JOIN HOSP_CORE.ENCOUNTERS e1 ON e1.ENCOUNTER_ID = r.ENCOUNTER_ID JOIN HEALTH_GOV.VISIBLE v1 ON v1.RECORD_ID = e1.RECORD_ID
+JOIN HOSP_CORE.ENCOUNTERS e2 ON e2.ENCOUNTER_ID = r.PREV_ENCOUNTER_ID JOIN HEALTH_GOV.VISIBLE v2 ON v2.RECORD_ID = e2.RECORD_ID
+COMMENT IS 'Certified 30-day readmission (same person, any branch), limited to readmissions where the caller may open both stays. To count readmissions that came back to a different branch or system, use VISIBLE_TO_ONE_SYSTEM = FALSE (the earlier stay is under another record id, so no single branch system can count it); do not compare BRANCH with PREV_BRANCH.';
+
+-- Q4: patients like her. Her admission note (today, Branch B) against every note the caller may open: cosine
+-- similarity is a join + GROUP BY over the long, narrow vector table. Names masked unless full identity.
+CREATE OR REPLACE VIEW HEALTH_GOV.SIMILAR_TO_HER AS
+WITH q AS (SELECT n.DIM, n.VAL FROM HOSP_CORE.NOTE_VECTORS n JOIN HOSP_CORE.NOTES t ON t.NOTE_ID = n.NOTE_ID
+           JOIN HEALTH_GOV.VISIBLE v ON v.RECORD_ID = t.RECORD_ID WHERE n.NOTE_ID = 'M:ENC-BLR-2610-02605'),
+sim AS (SELECT v.NOTE_ID, SUM(v.VAL * q.VAL) AS SIMILARITY FROM HOSP_CORE.NOTE_VECTORS v JOIN q ON q.DIM = v.DIM GROUP BY v.NOTE_ID),
+cases AS (SELECT n.UNIFIED_ID, n.ENCOUNTER_ID, s.SIMILARITY FROM sim s JOIN HOSP_CORE.NOTES n ON n.NOTE_ID = s.NOTE_ID
+          JOIN HEALTH_GOV.VISIBLE vv ON vv.RECORD_ID = n.RECORD_ID WHERE n.UNIFIED_ID <> 'WC-000468'),
+abx AS (SELECT ENCOUNTER_ID, DRUG FROM HOSP_CORE.MEDICATIONS
+        WHERE UPPER(DRUG) IN ('AMOXICILLIN-CLAVULANATE', 'AMOXICILLIN', 'AMPICILLIN', 'PIPERACILLIN-TAZOBACTAM', 'LEVOFLOXACIN',
+                              'DOXYCYCLINE', 'AZITHROMYCIN', 'CEFTRIAXONE', 'CLARITHROMYCIN')),
+pen AS (SELECT a.UNIFIED_ID FROM HOSP_CORE.ALLERGIES a JOIN HEALTH_GOV.VISIBLE v ON v.RECORD_ID = a.RECORD_ID
+        WHERE a.DRUG_CLASS = 'PENICILLIN' GROUP BY a.UNIFIED_ID),
+readm AS (SELECT PREV_ENCOUNTER_ID FROM HOSP_CORE.READMISSIONS_30D GROUP BY PREV_ENCOUNTER_ID)
+SELECT c.UNIFIED_ID,
+       CASE WHEN p.PHI_RANK = 2 THEN s.PATIENT_NAME ELSE 'Patient ' || SUBSTR(HASH_SHA1(c.UNIFIED_ID), 1, 6) END AS PATIENT_NAME,
+       FLOOR(YEARS_BETWEEN(CURRENT_DATE, s.BIRTH_DATE)) AS AGE, e.BRANCH, e.DIAGNOSIS, e.ADMIT_DATE, e.LENGTH_OF_STAY,
+       ROUND(c.SIMILARITY, 3) AS SIMILARITY, a.DRUG AS ANTIBIOTIC,
+       CASE WHEN r.PREV_ENCOUNTER_ID IS NULL THEN FALSE ELSE TRUE END AS READMITTED_30D
+FROM cases c
+JOIN HOSP_CORE.ENCOUNTERS e ON e.ENCOUNTER_ID = c.ENCOUNTER_ID AND e.ENCOUNTER_CLASS = 'inpatient' AND e.STATUS = 'finished'
+JOIN HOSP_CORE.PATIENT_SUMMARY s ON s.UNIFIED_ID = c.UNIFIED_ID
+JOIN HEALTH_GOV.PERSON p ON p.UNIFIED_ID = c.UNIFIED_ID
+JOIN HOSP_CORE.DIABETIC_PATIENTS d ON d.UNIFIED_ID = c.UNIFIED_ID
+JOIN pen ON pen.UNIFIED_ID = c.UNIFIED_ID
+LEFT JOIN abx a ON a.ENCOUNTER_ID = c.ENCOUNTER_ID
+LEFT JOIN readm r ON r.PREV_ENCOUNTER_ID = c.ENCOUNTER_ID
+WHERE YEARS_BETWEEN(CURRENT_DATE, s.BIRTH_DATE) >= 60
+QUALIFY ROW_NUMBER() OVER (PARTITION BY c.UNIFIED_ID ORDER BY c.SIMILARITY DESC) = 1
+COMMENT IS 'Patients like her: diabetic, 60+, penicillin-allergic (in a record the caller may open), with a finished inpatient stay whose note is close in meaning to her admission note today. One row per patient, best match. What antibiotic they got and whether they came back within 30 days.';
+
+GRANT SELECT ON HEALTH_GOV.READMISSIONS TO HC_CLINICIAN, HC_ANALYST;
+GRANT SELECT ON HEALTH_GOV.SIMILAR_TO_HER TO HC_CLINICIAN, HC_ANALYST;
