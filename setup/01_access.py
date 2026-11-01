@@ -56,6 +56,7 @@ def main():
         con.execute(f'{"ALTER" if u in existing else "CREATE"} USER {u} IDENTIFIED BY "{pw[u]}"')
         con.execute(f"GRANT CREATE SESSION TO {u}")
         con.execute(f"GRANT {role} TO {u}")
+    ENV.parent.mkdir(mode=0o700, exist_ok=True)
     old = os.umask(0o077)
     ENV.write_text("".join(f"{u}={pw[u]}\n" for u in USERS))
     os.umask(old)

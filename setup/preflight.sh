@@ -31,14 +31,20 @@ PYEOF
 [[ "${1:-}" == "--reset" ]] && { say "3. Reset"; "$PY" "$ROOT/setup/reset.py" | sed 's/^/    /'; }
 
 say "3b. Claude (for typed questions; the six fixed questions work without it)"
-"$PY" - <<'PYEOF' && ok "Claude answers" || printf '    \033[0;33mwarn\033[0m  Claude not reachable: typed questions will say so; use the six questions\n'
+"$PY" - <<'PYEOF' && ok "Claude answers" || printf '    \033[0;33mwarn\033[0m  Claude not available: typed questions will say so; the six questions work without it\n'
 import json, os, sys, urllib.request
 sys.path.insert(0, os.environ["ROOT"]); import hcconfig as C
-k = dict(l.strip().split("=", 1) for l in open(C.ANTHROPIC_KEY_FILE) if "=" in l)["ANTHROPIC_API_KEY"]
+k = dict(l.strip().split("=", 1) for l in open(C.ANTHROPIC_KEY_FILE) if "=" in l).get("ANTHROPIC_API_KEY", "") if C.ANTHROPIC_KEY_FILE.exists() else ""
+if not k:
+    print("    (no key in " + str(C.ANTHROPIC_KEY_FILE.name) + ")"); sys.exit(1)
 req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=json.dumps({"model": C.CLAUDE_MODEL, "max_tokens": 20,
       "thinking": {"type": "between_tools"}, "messages": [{"role": "user", "content": "Reply ok"}]}).encode(),
       headers={"x-api-key": k, "anthropic-version": "2023-06-01", "content-type": "application/json"})
-sys.exit(0 if urllib.request.urlopen(req, timeout=30).status == 200 else 1)
+try:
+    sys.exit(0 if urllib.request.urlopen(req, timeout=30).status == 200 else 1)
+except Exception as e:  # noqa: BLE001
+    print("    (" + (f"HTTP {e.code}: the key was rejected" if getattr(e, "code", 0) in (401, 403) else type(e).__name__) + ")")
+    sys.exit(1)
 PYEOF
 
 say "4. Console"

@@ -39,6 +39,9 @@ def _claude(model, system, user, max_tokens=4000, think=True):
     try:
         r = json.loads(urllib.request.urlopen(req, timeout=45).read())
     except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise RuntimeError("Claude is not set up: the API key in secrets/anthropic.env was rejected. "
+                               "Ask one of the six questions instead.") from e
         raise RuntimeError(f"Claude API {e.code}") from e
     except Exception as e:  # noqa: BLE001 - no network on the day
         raise RuntimeError("Claude is not reachable (no internet?). Ask one of the six questions instead.") from e

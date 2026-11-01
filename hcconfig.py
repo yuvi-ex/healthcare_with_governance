@@ -27,9 +27,9 @@ def _path(v, base):
 
 
 _ENV = {k: v for k, v in os.environ.items() if k.startswith("HC_")}
-_V = {**_read(ROOT / "config.env"), **_ENV}
+_V = {**_read(ROOT / "config.env"), **_read(ROOT / "config.local.env"), **_ENV}   # config.local.env: your overrides, git-ignored
 BASE_DIR = _path(_V["HC_BASE_DIR"], ROOT)
-_B = {**_read(BASE_DIR / "config.env"), **_ENV}           # the hospital-chain build's settings
+_B = {**_read(BASE_DIR / "config.env"), **_read(BASE_DIR / "config.local.env"), **_ENV}           # the hospital-chain build's settings
 
 EXA_HOST, EXA_PORT = _V["HC_EXA_HOST"], int(_V["HC_EXA_PORT"])
 EXA_DSN = f"{EXA_HOST}:{EXA_PORT}"

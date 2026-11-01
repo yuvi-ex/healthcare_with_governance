@@ -1,10 +1,13 @@
 # Shared settings for the shell scripts. Source it, do not run it.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# config.env holds the defaults; an environment variable of the same name wins
-while IFS='=' read -r k v; do
-  [[ -z "$k" || "$k" == \#* ]] && continue
-  [[ -n "${!k:-}" ]] || export "$k=$v"
-done < "$ROOT/config.env"
+# config.local.env (your overrides, git-ignored) wins over config.env; an environment variable of the same name wins over both
+for f in "$ROOT/config.local.env" "$ROOT/config.env"; do
+  [[ -f "$f" ]] || continue
+  while IFS='=' read -r k v; do
+    [[ -z "$k" || "$k" == \#* ]] && continue
+    [[ -n "${!k:-}" ]] || export "$k=$v"
+  done < "$f"
+done
 BASE="$HC_BASE_DIR"; [[ "$BASE" == /* ]] || BASE="$(cd "$ROOT" && cd "$BASE" 2>/dev/null && pwd || echo "$ROOT/$HC_BASE_DIR")"
 PY="$ROOT/.venv/bin/python"
 SVC="http://127.0.0.1:$HC_GOV_SERVICE_PORT"
